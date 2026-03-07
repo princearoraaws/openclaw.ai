@@ -771,17 +771,17 @@ const duration2 = (row2.length / 2 * pixelsPerItem) / pixelsPerSecond;
       </h2>
       <div class="sponsors-grid">
         <a href="https://openai.com" target="_blank" rel="noopener" class="sponsor-card">
-          <img src="/sponsors/openai.svg" alt="OpenAI" class="sponsor-logo sponsor-logo-openai" loading="lazy" />
+          <img src="/sponsors/openai.svg" alt="OpenAI" class="sponsor-logo sponsor-logo-openai sponsor-logo-invert-on-light" loading="lazy" />
         </a>
         <a href="https://vercel.com" target="_blank" rel="noopener" class="sponsor-card">
           <img src="/sponsors/vercel-dark.svg" alt="Vercel" class="sponsor-logo sponsor-logo-vercel sponsor-logo-dark-only" loading="lazy" />
           <img src="/sponsors/vercel-light.svg" alt="Vercel" class="sponsor-logo sponsor-logo-vercel sponsor-logo-light-only" loading="lazy" />
         </a>
         <a href="https://blacksmith.sh" target="_blank" rel="noopener" class="sponsor-card">
-          <img src="/sponsors/blacksmith.svg" alt="Blacksmith" class="sponsor-logo sponsor-logo-blacksmith" loading="lazy" />
+          <img src="/sponsors/blacksmith.svg" alt="Blacksmith" class="sponsor-logo sponsor-logo-blacksmith sponsor-logo-invert-on-light" loading="lazy" />
         </a>
         <a href="https://www.convex.dev" target="_blank" rel="noopener" class="sponsor-card">
-          <img src="/sponsors/convex.svg" alt="Convex" class="sponsor-logo sponsor-logo-convex" loading="lazy" />
+          <img src="/sponsors/convex.svg" alt="Convex" class="sponsor-logo sponsor-logo-convex sponsor-logo-invert-on-light" loading="lazy" />
         </a>
       </div>
     </section>
@@ -1783,7 +1783,7 @@ const duration2 = (row2.length / 2 * pixelsPerItem) / pixelsPerSecond;
     transition: opacity 0.25s ease;
   }
 
-  :global(html[data-theme='light']) .sponsor-logo:not(.sponsor-logo-light-only) {
+  :global(html[data-theme='light']) .sponsor-logo-invert-on-light {
     filter: invert(1);
     opacity: 0.8;
   }
