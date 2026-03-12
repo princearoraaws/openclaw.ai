@@ -146,13 +146,157 @@ function Check-Git {
     }
 }
 
-function Require-Git {
+function Add-ToProcessPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PathEntry
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PathEntry)) {
+        return
+    }
+
+    $currentEntries = @($env:Path -split ";" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($currentEntries | Where-Object { $_ -ieq $PathEntry }) {
+        return
+    }
+
+    $env:Path = "$PathEntry;$env:Path"
+}
+
+function Get-PortableGitRoot {
+    $base = Join-Path $env:LOCALAPPDATA "OpenClaw\deps"
+    return (Join-Path $base "portable-git")
+}
+
+function Get-PortableGitCommandPath {
+    $root = Get-PortableGitRoot
+    foreach ($candidate in @(
+        (Join-Path $root "mingw64\bin\git.exe"),
+        (Join-Path $root "cmd\git.exe"),
+        (Join-Path $root "bin\git.exe"),
+        (Join-Path $root "git.exe")
+    )) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
+function Use-PortableGitIfPresent {
+    $gitExe = Get-PortableGitCommandPath
+    if (-not $gitExe) {
+        return $false
+    }
+
+    $portableRoot = Get-PortableGitRoot
+    foreach ($pathEntry in @(
+        (Join-Path $portableRoot "mingw64\bin"),
+        (Join-Path $portableRoot "usr\bin"),
+        (Split-Path -Parent $gitExe)
+    )) {
+        if (Test-Path $pathEntry) {
+            Add-ToProcessPath $pathEntry
+        }
+    }
+    if (Check-Git) {
+        return $true
+    }
+    return $false
+}
+
+function Resolve-PortableGitDownload {
+    $releaseApi = "https://api.github.com/repos/git-for-windows/git/releases/latest"
+    $headers = @{
+        "User-Agent" = "openclaw-installer"
+        "Accept" = "application/vnd.github+json"
+    }
+    $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers
+    if (-not $release -or -not $release.assets) {
+        throw "Could not resolve latest git-for-windows release metadata."
+    }
+
+    $asset = $release.assets |
+        Where-Object { $_.name -match '^MinGit-.*-64-bit\.zip$' -and $_.name -notmatch 'busybox' } |
+        Select-Object -First 1
+
+    if (-not $asset) {
+        throw "Could not find a MinGit zip asset in the latest git-for-windows release."
+    }
+
+    return @{
+        Tag = $release.tag_name
+        Name = $asset.name
+        Url = $asset.browser_download_url
+    }
+}
+
+function Install-PortableGit {
+    if (Use-PortableGitIfPresent) {
+        $portableVersion = (& git --version 2>$null)
+        if ($portableVersion) {
+            Write-Host "[OK] User-local Git already available: $portableVersion" -ForegroundColor Green
+        }
+        return
+    }
+
+    Write-Host "[*] Git not found; bootstrapping user-local portable Git..." -ForegroundColor Yellow
+
+    $download = Resolve-PortableGitDownload
+    $portableRoot = Get-PortableGitRoot
+    $portableParent = Split-Path -Parent $portableRoot
+    $tmpZip = Join-Path $env:TEMP $download.Name
+    $tmpExtract = Join-Path $env:TEMP ("openclaw-portable-git-" + [guid]::NewGuid().ToString("N"))
+
+    New-Item -ItemType Directory -Force -Path $portableParent | Out-Null
+    if (Test-Path $portableRoot) {
+        Remove-Item -Recurse -Force $portableRoot
+    }
+    if (Test-Path $tmpExtract) {
+        Remove-Item -Recurse -Force $tmpExtract
+    }
+    New-Item -ItemType Directory -Force -Path $tmpExtract | Out-Null
+
+    try {
+        Write-Host "  Downloading $($download.Tag)..." -ForegroundColor Gray
+        Invoke-WebRequest -Uri $download.Url -OutFile $tmpZip
+        Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
+        Move-Item -Path (Join-Path $tmpExtract "*") -Destination $portableRoot -Force
+    } finally {
+        if (Test-Path $tmpZip) {
+            Remove-Item -Force $tmpZip
+        }
+        if (Test-Path $tmpExtract) {
+            Remove-Item -Recurse -Force $tmpExtract
+        }
+    }
+
+    if (-not (Use-PortableGitIfPresent)) {
+        throw "Portable Git bootstrap completed, but git is still unavailable."
+    }
+
+    $portableVersion = (& git --version 2>$null)
+    Write-Host "[OK] User-local Git ready: $portableVersion" -ForegroundColor Green
+}
+
+function Ensure-Git {
     if (Check-Git) { return }
+    if (Use-PortableGitIfPresent) { return }
+    try {
+        Install-PortableGit
+        if (Check-Git) {
+            return
+        }
+    } catch {
+        Write-Host "[!] Portable Git bootstrap failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
     Write-Host ""
     Write-Host "Error: Git is required to install OpenClaw." -ForegroundColor Red
-    Write-Host "Install Git for Windows:" -ForegroundColor Yellow
+    Write-Host "Auto-bootstrap of user-local Git did not succeed." -ForegroundColor Yellow
+    Write-Host "Install Git for Windows manually, then re-run this installer:" -ForegroundColor Yellow
     Write-Host "  https://git-scm.com/download/win" -ForegroundColor Cyan
-    Write-Host "Then re-run this installer." -ForegroundColor Yellow
     exit 1
 }
 
@@ -184,6 +328,38 @@ function Invoke-OpenClawCommand {
     & $commandPath @Arguments
 }
 
+function Resolve-CommandPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Candidates
+    )
+
+    foreach ($candidate in $Candidates) {
+        $command = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($command -and $command.Source) {
+            return $command.Source
+        }
+    }
+
+    return $null
+}
+
+function Get-NpmCommandPath {
+    $path = Resolve-CommandPath -Candidates @("npm.cmd", "npm.exe", "npm")
+    if (-not $path) {
+        throw "npm not found on PATH."
+    }
+    return $path
+}
+
+function Get-CorepackCommandPath {
+    return (Resolve-CommandPath -Candidates @("corepack.cmd", "corepack.exe", "corepack"))
+}
+
+function Get-PnpmCommandPath {
+    return (Resolve-CommandPath -Candidates @("pnpm.cmd", "pnpm.exe", "pnpm"))
+}
+
 function Get-NpmGlobalBinCandidates {
     param(
         [string]$NpmPrefix
@@ -208,7 +384,7 @@ function Ensure-OpenClawOnPath {
 
     $npmPrefix = $null
     try {
-        $npmPrefix = (npm config get prefix 2>$null).Trim()
+        $npmPrefix = (& (Get-NpmCommandPath) config get prefix 2>$null).Trim()
     } catch {
         $npmPrefix = $null
     }
@@ -242,14 +418,15 @@ function Ensure-OpenClawOnPath {
 }
 
 function Ensure-Pnpm {
-    if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+    if (Get-PnpmCommandPath) {
         return
     }
-    if (Get-Command corepack -ErrorAction SilentlyContinue) {
+    $corepackCommand = Get-CorepackCommandPath
+    if ($corepackCommand) {
         try {
-            corepack enable | Out-Null
-            corepack prepare pnpm@latest --activate | Out-Null
-            if (Get-Command pnpm -ErrorAction SilentlyContinue) {
+            & $corepackCommand enable | Out-Null
+            & $corepackCommand prepare pnpm@latest --activate | Out-Null
+            if (Get-PnpmCommandPath) {
                 Write-Host "[OK] pnpm installed via corepack" -ForegroundColor Green
                 return
             }
@@ -261,7 +438,7 @@ function Ensure-Pnpm {
     $prevScriptShell = $env:NPM_CONFIG_SCRIPT_SHELL
     $env:NPM_CONFIG_SCRIPT_SHELL = "cmd.exe"
     try {
-        npm install -g pnpm
+        & (Get-NpmCommandPath) install -g pnpm
     } finally {
         $env:NPM_CONFIG_SCRIPT_SHELL = $prevScriptShell
     }
@@ -273,7 +450,7 @@ function Install-OpenClaw {
     if ([string]::IsNullOrWhiteSpace($Tag)) {
         $Tag = "latest"
     }
-    Require-Git
+    Ensure-Git
 
     # Use openclaw package for beta, openclaw for stable
     $packageName = "openclaw"
@@ -286,13 +463,15 @@ function Install-OpenClaw {
     $prevFund = $env:NPM_CONFIG_FUND
     $prevAudit = $env:NPM_CONFIG_AUDIT
     $prevScriptShell = $env:NPM_CONFIG_SCRIPT_SHELL
+    $prevNodeLlamaSkipDownload = $env:NODE_LLAMA_CPP_SKIP_DOWNLOAD
     $env:NPM_CONFIG_LOGLEVEL = "error"
     $env:NPM_CONFIG_UPDATE_NOTIFIER = "false"
     $env:NPM_CONFIG_FUND = "false"
     $env:NPM_CONFIG_AUDIT = "false"
     $env:NPM_CONFIG_SCRIPT_SHELL = "cmd.exe"
+    $env:NODE_LLAMA_CPP_SKIP_DOWNLOAD = "1"
     try {
-        $npmOutput = npm install -g "$packageName@$Tag" 2>&1
+        $npmOutput = & (Get-NpmCommandPath) install -g "$packageName@$Tag" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[!] npm install failed" -ForegroundColor Red
             if ($npmOutput -match "spawn git" -or $npmOutput -match "ENOENT.*git") {
@@ -312,6 +491,7 @@ function Install-OpenClaw {
         $env:NPM_CONFIG_FUND = $prevFund
         $env:NPM_CONFIG_AUDIT = $prevAudit
         $env:NPM_CONFIG_SCRIPT_SHELL = $prevScriptShell
+        $env:NODE_LLAMA_CPP_SKIP_DOWNLOAD = $prevNodeLlamaSkipDownload
     }
     Write-Host "[OK] OpenClaw installed" -ForegroundColor Green
 }
@@ -322,7 +502,7 @@ function Install-OpenClawFromGit {
         [string]$RepoDir,
         [switch]$SkipUpdate
     )
-    Require-Git
+    Ensure-Git
     Ensure-Pnpm
 
     $repoUrl = "https://github.com/openclaw/openclaw.git"
@@ -345,13 +525,17 @@ function Install-OpenClawFromGit {
     Remove-LegacySubmodule -RepoDir $RepoDir
 
     $prevPnpmScriptShell = $env:NPM_CONFIG_SCRIPT_SHELL
+    $pnpmCommand = Get-PnpmCommandPath
+    if (-not $pnpmCommand) {
+        throw "pnpm not found after installation."
+    }
     $env:NPM_CONFIG_SCRIPT_SHELL = "cmd.exe"
     try {
-        pnpm -C $RepoDir install
-        if (-not (pnpm -C $RepoDir ui:build)) {
+        & $pnpmCommand -C $RepoDir install
+        if (-not (& $pnpmCommand -C $RepoDir ui:build)) {
             Write-Host "[!] UI build failed; continuing (CLI may still work)" -ForegroundColor Yellow
         }
-        pnpm -C $RepoDir build
+        & $pnpmCommand -C $RepoDir build
     } finally {
         $env:NPM_CONFIG_SCRIPT_SHELL = $prevPnpmScriptShell
     }
@@ -522,7 +706,7 @@ function Main {
     }
     if (-not $installedVersion) {
         try {
-            $npmList = npm list -g --depth 0 --json 2>$null | ConvertFrom-Json
+            $npmList = & (Get-NpmCommandPath) list -g --depth 0 --json 2>$null | ConvertFrom-Json
             if ($npmList -and $npmList.dependencies -and $npmList.dependencies.openclaw -and $npmList.dependencies.openclaw.version) {
                 $installedVersion = $npmList.dependencies.openclaw.version
             }
