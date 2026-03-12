@@ -44,7 +44,7 @@ The landing page hosts installer scripts:
 
 - **macOS/Linux**: `curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash`
 - **macOS/Linux (CLI only, no onboarding)**: `curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install-cli.sh | bash`
-- **Windows**: `iwr -useb https://openclaw.ai/install.ps1 | iex`
+- **Windows**: `powershell -c "irm https://openclaw.ai/install.ps1 | iex"`
 
 Installer UI controls (macOS/Linux `install.sh`):
 - Gum UI is auto-detected; interactive terminals get richer status output, non-interactive shells fall back to plain output automatically.

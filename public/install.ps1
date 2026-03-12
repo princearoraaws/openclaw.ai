@@ -1,6 +1,6 @@
 # OpenClaw Installer for Windows
-# Usage: iwr -useb https://openclaw.ai/install.ps1 | iex
-#        & ([scriptblock]::Create((iwr -useb https://openclaw.ai/install.ps1))) -Tag beta -NoOnboard -DryRun
+# Usage: powershell -c "irm https://openclaw.ai/install.ps1 | iex"
+#        powershell -c "& ([scriptblock]::Create((irm https://openclaw.ai/install.ps1))) -Tag beta -NoOnboard -DryRun"
 
 param(
     [string]$Tag = "latest",
@@ -301,7 +301,7 @@ function Install-OpenClaw {
                 Write-Host "  https://git-scm.com/download/win" -ForegroundColor Cyan
             } else {
                 Write-Host "Re-run with verbose output to see the full error:" -ForegroundColor Yellow
-                Write-Host "  iwr -useb https://openclaw.ai/install.ps1 | iex" -ForegroundColor Cyan
+                Write-Host '  powershell -c "irm https://openclaw.ai/install.ps1 | iex"' -ForegroundColor Cyan
             }
             $npmOutput | ForEach-Object { Write-Host $_ }
             exit 1
