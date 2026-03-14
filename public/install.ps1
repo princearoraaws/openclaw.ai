@@ -604,7 +604,7 @@ function Refresh-GatewayServiceIfLoaded {
 
     try {
         Invoke-OpenClawCommand gateway restart | Out-Null
-        Invoke-OpenClawCommand gateway status --probe --json | Out-Null
+        Invoke-OpenClawCommand gateway status --json | Out-Null
         Write-Host "[OK] Gateway service refreshed" -ForegroundColor Green
     } catch {
         Write-Host "[!] Gateway service restart failed; continuing." -ForegroundColor Yellow
